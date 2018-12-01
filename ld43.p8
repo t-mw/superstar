@@ -9,8 +9,11 @@ local max_move_timer = 5
 local max_player_length = 20
 
 local state = {
+   time = 0,
    map = {},
    camera = { sx = 0, sy = 0 },
+   score = 0,
+   recent_scores = {},
    player = {
       input_dir = 0,
       move_timer = max_move_timer,
@@ -29,8 +32,7 @@ local tile_types = {
    source_1 = 4,
    source_2 = 5,
    source_3 = 6,
-   destination = 7,
-   empty_cargo = 8
+   destination = 7
 }
 
 function is_empty_tile_type(tile_type)
@@ -82,7 +84,7 @@ if true then
 end
 
 function tile_to_screen(tx, ty)
-   return tx * 10, ty * 10
+   return tx * 8, ty * 8
 end
 
 function lerp(a, b, t)
@@ -104,6 +106,41 @@ end
 
 function get_current_player_dir(player)
    return player.positions[1].dir
+end
+
+function get_tail_tile_type(tail_item)
+   return tail_item.tile_type
+end
+
+function get_tail_value(tail_item, player_position)
+   local dx = tail_item.source_tx - player_position.tx
+   local dy = tail_item.source_ty - player_position.ty
+   return flr(sqrt(dx * dx + dy * dy) + 0.5)
+end
+
+function get_tail_is_emptying(tail_item)
+   return tail_item.is_emptying
+end
+
+function get_tail_sprite(tail_item, player_position)
+   local value = get_tail_value(tail_item, player_position)
+   if value < 10 then
+      return 5
+   elseif value < 20 then
+      return 4
+   else
+      return 3
+   end
+end
+
+function get_value_color(value)
+   if value < 10 then
+      return 7
+   elseif value < 20 then
+      return 10
+   else
+      return 9
+   end
 end
 
 local templates = {}
@@ -172,7 +209,13 @@ function try_move(player, map, dir)
       local tile_type = map[idx]
 
       if is_source_tile_type(tile_type) then
-         add(player.tail, tile_type)
+         add(player.tail, {
+                tile_type = tile_type,
+                source_tx = tx,
+                source_ty = ty,
+                is_emptying = false
+         })
+
          if #player.tail > max_player_length then
             for i = 1, #player.tail do
                player.positions[i] = player.positions[i + 1]
@@ -185,7 +228,7 @@ function try_move(player, map, dir)
       -- clean up empty cargo from previous move
       local new_tail = {}
       for i = 1, #player.tail do
-         if player.tail[i] != tile_types.empty_cargo then
+         if not get_tail_is_emptying(player.tail[i]) then
             add(new_tail, player.tail[i])
          end
       end
@@ -204,8 +247,20 @@ function try_move(player, map, dir)
          local idx = to_1d_idx(pos.tx, pos.ty, map_size)
          local tile_type = map[idx]
 
-         if tile_type == tile_types.destination and is_source_tile_type(player.tail[i - 1]) then
-            player.tail[i - 1] = tile_types.empty_cargo
+         local tail_item = player.tail[i - 1]
+         if tile_type == tile_types.destination and tail_item and
+         is_source_tile_type(get_tail_tile_type(tail_item)) then
+            local value = get_tail_value(tail_item, player.positions[1])
+            state.score += value
+
+            add(state.recent_scores, {
+                   value = value,
+                   time = state.time,
+                   tx = pos.tx,
+                   ty = pos.ty
+            })
+
+            tail_item.is_emptying = true
             map[idx] = tile_types.floor
          end
       end
@@ -217,6 +272,8 @@ function try_move(player, map, dir)
 end
 
 function _update()
+   state.time += 1
+
    local cam = state.camera
    local player = state.player
    local map = state.map
@@ -244,8 +301,11 @@ function _update()
 end
 
 function _draw()
+   local player = state.player
+   local cam = state.camera;
+
    cls(0)
-   camera(state.camera.sx, state.camera.sy)
+   camera(cam.sx, cam.sy)
 
    function draw_tile(tx, ty, tile_type)
       local x0, y0 = tile_to_screen(tx, ty)
@@ -253,6 +313,11 @@ function _draw()
       x1 -= 1
       y1 -= 1
       rectfill(x0, y0, x1, y1, tile_type)
+   end
+
+   function draw_tile_sprite(tx, ty, sprite)
+      local x, y = tile_to_screen(tx, ty)
+      spr(sprite, x, y)
    end
 
    for x = 1, map_size do
@@ -263,45 +328,61 @@ function _draw()
       end
    end
 
-   local player = state.player
    local move_frac = 1 - max(0, player.move_timer / max_move_timer)
 
    for i = 1, #player.positions do
-      local clr
+      local pos = player.positions[i]
+      local dx, dy = dir_to_dx_dy(pos.dir)
+
+      local tx0 = pos.tx - dx;
+      local ty0 = pos.ty - dy;
+
+      local tx = lerp(tx0, pos.tx, move_frac)
+      local ty = lerp(ty0, pos.ty, move_frac)
 
       if i == 1 then
-         clr = 6
+         draw_tile(tx, ty, 6)
       else
-         local tile_type = player.tail[i - 1]
-         if tile_type then
-            clr = tile_type
+         local tail_item = player.tail[i - 1]
+         if tail_item then
+            local sprite = get_tail_sprite(tail_item, player.positions[1])
+            draw_tile_sprite(tx, ty, sprite)
          end
       end
-
-      if clr then
-         local pos = player.positions[i]
-         local dx, dy = dir_to_dx_dy(pos.dir)
-
-         local tx0 = pos.tx - dx;
-         local ty0 = pos.ty - dy;
-
-         local tx = lerp(tx0, pos.tx, move_frac)
-         local ty = lerp(ty0, pos.ty, move_frac)
-
-         draw_tile(tx, ty, clr)
-      end
    end
+
+   camera(0, 0)
+   print(state.score, 10, 10)
+
+   local recent_scores = {}
+   foreach(state.recent_scores, function(recent_score)
+              local recent_score_frac = max(0, 1 - (state.time - recent_score.time) / 20)
+              if recent_score_frac > 0 then
+                 local tx, ty = recent_score.tx, recent_score.ty
+                 local sx, sy = tile_to_screen(tx, ty)
+                 sx -= cam.sx
+                 sy -= cam.sy
+
+                 sy += recent_score_frac * 10 - 10
+                 color(get_value_color(recent_score.value))
+                 print("+"..recent_score.value, sx, sy)
+
+                 add(recent_scores, recent_score)
+              end
+   end)
+
+   state.recent_scores = recent_scores
 end
 
 __gfx__
-00000000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00700700111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00077000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00077000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00700700111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-00000000111111116666666688888888000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000666666661111111155555555555555555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000666666661111111159999995555555555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
+0070070066666666111111115999999555aaaa555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
+0007700066666666111111115999999555aaaa555557755500000000000000000000000000000000000000000000000000000000000000000000000000000000
+0007700066666666111111115999999555aaaa555557755500000000000000000000000000000000000000000000000000000000000000000000000000000000
+0070070066666666555555555999999555aaaa555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000666666665555555559999995555555555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
+00000000666666665555555555555555555555555555555500000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0202000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0202000302020000020202020202020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
