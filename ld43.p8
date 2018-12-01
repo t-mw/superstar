@@ -219,18 +219,15 @@ function try_move(player, map, dir)
       local tile_type = map[idx]
 
       if is_source_tile_type(tile_type) then
-         add(player.tail, {
-                tile_type = tile_type,
-                source_tx = tx,
-                source_ty = ty,
-                is_emptying = false
-         })
-
-         if #player.tail > max_player_length then
-            for i = 1, #player.tail do
-               player.positions[i] = player.positions[i + 1]
-            end
+         for i = max_player_length, 1, -1 do
+            player.tail[i] =  player.tail[i - 1]
          end
+         player.tail[1] = {
+            tile_type = tile_type,
+            source_tx = tx,
+            source_ty = ty,
+            is_emptying = false
+         }
 
          map[idx] = tile_types.floor
       end
