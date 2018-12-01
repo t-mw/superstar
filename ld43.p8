@@ -5,11 +5,24 @@ __lua__
 local template_size = 8
 local map_size_templates = 2
 local map_size = map_size_templates * template_size
+local max_move_timer = 5
 
 local state = {
    camera = { sx = 0, sy = 0 },
-   player = { tx = 1, ty = 1 }
+   player = { tx = 1, ty = 1, dir = 0, input_dir = 0, move_timer = max_move_timer }
 }
+
+function dir_to_dx_dy(dir)
+   if dir == 0 then
+      return -1, 0
+   elseif dir == 1 then
+      return 1, 0
+   elseif dir == 2 then
+      return 0, -1
+   elseif dir == 3 then
+      return 0, 1
+   end
+end
 
 function to_1d_idx(x, y, size)
    return (x - 1) * size + y
@@ -19,8 +32,8 @@ function to_2d_idx(i, size)
   return flr((i - 1) / size) + 1, ((i - 1) % size) + 1
 end
 
-function tile_to_screen(tx, ty)
-   return tx * 10, ty * 10
+function is_valid_idx(x, y, size)
+   return x >= 1 and x <= size and y >= 1 and y <= size
 end
 
 if true then
@@ -33,6 +46,23 @@ if true then
    assert(x == 2)
    assert(y == 2)
    assert(to_1d_idx(x, y, 2) == 4)
+end
+
+function tile_to_screen(tx, ty)
+   return tx * 10, ty * 10
+end
+
+function lerp(a, b, t)
+   return a + (b - a) * t
+end
+
+function is_tile_empty(tx, ty, map)
+   if not is_valid_idx(tx, ty, map_size) then
+      return false
+   end
+
+   local tile = map[to_1d_idx(tx, ty, map_size)]
+   return tile == 2 or tile == 3
 end
 
 local templates = {}
@@ -71,18 +101,32 @@ function _update()
    local cam = state.camera
    local player = state.player
 
-   if btnp(0) then
-      player.tx -= 1
+   player.move_timer -= 1
+
+   for dir = 0, 3 do
+      if btnp(dir) then
+         player.input_dir = dir
+      end
    end
-   if btnp(1) then
-      player.tx += 1
+
+   function try_move(dir)
+      local dx, dy = dir_to_dx_dy(dir)
+
+      local tx = player.tx + dx
+      local ty = player.ty + dy
+
+      if player.move_timer <= 0 and is_tile_empty(tx, ty, map) then
+         player.tx = tx
+         player.ty = ty
+         player.dir = dir
+         player.move_timer = max_move_timer
+         return true
+      end
+
+      return false
    end
-   if btnp(2) then
-      player.ty -= 1
-   end
-   if btnp(3) then
-      player.ty += 1
-   end
+
+   if try_move(player.input_dir) or try_move(player.dir) then end
 
    local padding = 40
    local sx_max, sy_max = tile_to_screen(player.tx + 1, player.ty + 1)
@@ -114,8 +158,18 @@ function _draw()
       end
    end
 
+   function get_prev_player_position(player)
+      local dx, dy = dir_to_dx_dy(player.dir)
+      return player.tx - dx, player.ty - dy
+   end
+
    local player = state.player
-   draw_tile(player.tx, player.ty, 5)
+   local move_frac = 1 - max(0, player.move_timer / max_move_timer)
+   local tx0, ty0 = get_prev_player_position(player)
+   local sx = lerp(tx0, player.tx, move_frac)
+   local sy = lerp(ty0, player.ty, move_frac)
+
+   draw_tile(sx, sy, 5)
 end
 
 __gfx__
