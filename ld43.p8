@@ -2,15 +2,16 @@ pico-8 cartridge // http://www.pico-8.com
 version 16
 __lua__
 
-local template_size = 8
-local map_size_templates = 2
-local map_size = map_size_templates * template_size
+local template_size = { width = 8, height = 8 }
+local map_size = {
+   width = 2 * template_size.width,
+   height = 10 * template_size.height
+}
 local max_move_timer = 5
 local max_player_length = 20
-local max_collapse_timer = 200
+local max_collapse_timer = 50
 local max_recent_score_timer = 20
 local max_tile_collapse_timer = 40
-
 
 local state = {
    time = 0,
@@ -19,6 +20,7 @@ local state = {
    score = 0,
    recent_scores = {},
    collapsing_tiles = {},
+   collapsing_ty = map_size.height,
    collapse_timer = max_collapse_timer,
    collapse_speed = 1,
    player = {
@@ -26,7 +28,7 @@ local state = {
       move_timer = max_move_timer,
       tail = {},
       positions = {
-         { tx = 1, ty = 1, dir = 0 }
+         { tx = 1, ty = map_size.height, dir = 0 }
       }
    }
 }
@@ -66,27 +68,28 @@ function dir_to_dx_dy(dir)
 end
 
 function to_1d_idx(x, y, size)
-   return (x - 1) * size + y
+   return ((x - 1) + size.width * (y - 1)) + 1
 end
 
 function to_2d_idx(i, size)
-  return flr((i - 1) / size) + 1, ((i - 1) % size) + 1
+  return ((i - 1) % size.width) + 1, flr((i - 1) / size.width) % size.height + 1
 end
 
 function is_valid_idx(x, y, size)
-   return x >= 1 and x <= size and y >= 1 and y <= size
+   return x >= 1 and x <= size.width and y >= 1 and y <= size.height
 end
 
 if true then
-   local x, y = to_2d_idx(1, 2)
+   local size = { width = 2, height = 2 }
+   local x, y = to_2d_idx(1, size)
    assert(x == 1)
    assert(y == 1)
-   assert(to_1d_idx(x, y, 2) == 1)
+   assert(to_1d_idx(x, y, size) == 1)
 
-   local x, y = to_2d_idx(4, 2)
+   local x, y = to_2d_idx(4, size)
    assert(x == 2)
    assert(y == 2)
-   assert(to_1d_idx(x, y, 2) == 4)
+   assert(to_1d_idx(x, y, size) == 4)
 end
 
 function tile_to_screen(tx, ty)
@@ -154,15 +157,15 @@ function get_value_color(value)
 end
 
 local templates = {}
-for tx = 0, 127, template_size do
-   for ty = 0, 127, template_size do
+for tx = 0, 127, template_size.width do
+   for ty = 0, 127, template_size.height do
       if mget(tx, ty) then
 
          local template = {}
          add(templates, template)
 
-         for x = 0, template_size - 1 do
-            for y = 0, template_size - 1 do
+         for x = 0, template_size.width - 1 do
+            for y = 0, template_size.height - 1 do
                local idx = to_1d_idx(x + 1, y + 1, template_size)
                template[idx] = mget(tx + x, ty + y)
             end
@@ -171,12 +174,12 @@ for tx = 0, 127, template_size do
    end
 end
 
-for x = 1, map_size do
-   for y = 1, map_size do
+for x = 1, map_size.width do
+   for y = 1, map_size.height do
       local idx = to_1d_idx(x, y, map_size)
       local tidx = to_1d_idx(
-         ((x - 1) % template_size) + 1,
-         ((y - 1) % template_size) + 1,
+         ((x - 1) % template_size.width) + 1,
+         ((y - 1) % template_size.height) + 1,
          template_size
       )
 
@@ -293,12 +296,32 @@ function _update()
    if state.collapse_timer < 0 then
       state.collapse_timer = max_collapse_timer
 
-      local tx = flr(rnd(map_size + 1))
-      local ty = flr(rnd(map_size + 1))
+      local player_tx, player_ty = get_current_player_tile(player)
+      local prev_ty = state.collapsing_ty
+      local max_ty = player_ty + 20
+      if state.collapsing_ty > max_ty then
+         state.collapsing_ty = max_ty
+      else
+         state.collapsing_ty -= 1
+      end
+
+      -- random tile
+      local tx = flr(rnd(map_size.width + 1))
+      local ty = flr(rnd(map_size.height + 1))
 
       if is_tile_empty(tx, ty, map) then
          add(state.collapsing_tiles, { tx = tx, ty = ty, time = state.time })
       end
+
+      -- bottom of map
+      for tx = 1, map_size.width do
+         for ty = state.collapsing_ty, prev_ty do
+            if is_tile_empty(tx, ty, map) then
+               add(state.collapsing_tiles, { tx = tx, ty = ty, time = state.time - flr(rnd(10)) })
+            end
+         end
+      end
+
    end
 
    local collapsing_tiles = {}
@@ -333,11 +356,15 @@ function _update()
    local tx, ty = get_current_player_tile(player)
    local sx_max, sy_max = tile_to_screen(tx + 1, ty + 1)
    local sx_min, sy_min = tile_to_screen(tx, ty)
-
-   local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
-   local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
-   cam.sx += xdiff / 20
-   cam.sy += ydiff / 20
+   if state.time == 1 then
+      cam.sx = sx_min - 64
+      cam.sy = sy_min - 64
+   else
+      local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
+      local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
+      cam.sx += xdiff / 20
+      cam.sy += ydiff / 20
+   end
 end
 
 function _draw()
@@ -363,10 +390,10 @@ function _draw()
    local start_x, start_y = screen_to_tile(cam.sx, cam.sy)
    local end_x, end_y = screen_to_tile(cam.sx + 128, cam.sy + 128)
 
-   start_x = flr(min(max(1, start_x), map_size))
-   end_x = ceil(min(max(1, end_x), map_size))
-   start_y = flr(min(max(1, start_y), map_size))
-   end_y = ceil(min(max(1, end_y), map_size))
+   start_x = flr(min(max(1, start_x), map_size.width))
+   end_x = ceil(min(max(1, end_x), map_size.width))
+   start_y = flr(min(max(1, start_y), map_size.height))
+   end_y = ceil(min(max(1, end_y), map_size.height))
 
    for x = start_x, end_x do
       for y = start_y, end_y do
