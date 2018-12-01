@@ -7,6 +7,10 @@ local map_size_templates = 2
 local map_size = map_size_templates * template_size
 local max_move_timer = 5
 local max_player_length = 20
+local max_collapse_timer = 200
+local max_recent_score_timer = 20
+local max_tile_collapse_timer = 40
+
 
 local state = {
    time = 0,
@@ -14,6 +18,9 @@ local state = {
    camera = { sx = 0, sy = 0 },
    score = 0,
    recent_scores = {},
+   collapsing_tiles = {},
+   collapse_timer = max_collapse_timer,
+   collapse_speed = 1,
    player = {
       input_dir = 0,
       move_timer = max_move_timer,
@@ -25,7 +32,7 @@ local state = {
 }
 
 local tile_types = {
-   empty = 0,
+   solid = 0,
    floor = 1,
    placeholder = 2,
    source_1 = 3,
@@ -84,6 +91,10 @@ end
 
 function tile_to_screen(tx, ty)
    return tx * 8, ty * 8
+end
+
+function screen_to_tile(sx, sy)
+   return sx / 8, sy / 8
 end
 
 function lerp(a, b, t)
@@ -272,12 +283,45 @@ end
 
 function _update()
    state.time += 1
+   state.collapse_timer -= state.collapse_speed
+   state.collapse_speed *= 1.0001
+   state.collapse_speed = min(state.collapse_speed, 200)
 
    local cam = state.camera
    local player = state.player
    local map = state.map
 
    player.move_timer -= 1
+
+   if state.collapse_timer < 0 then
+      state.collapse_timer = max_collapse_timer
+
+      local tx = flr(rnd(map_size + 1))
+      local ty = flr(rnd(map_size + 1))
+
+      if is_tile_empty(tx, ty, map) then
+         add(state.collapsing_tiles, { tx = tx, ty = ty, time = state.time })
+      end
+   end
+
+   local collapsing_tiles = {}
+   foreach(state.collapsing_tiles, function(collapsing_tile)
+              if state.time - collapsing_tile.time < max_tile_collapse_timer then
+                 add(collapsing_tiles, collapsing_tile)
+              else
+                 local idx = to_1d_idx(collapsing_tile.tx, collapsing_tile.ty, map_size)
+                 map[idx] = tile_types.solid
+              end
+   end)
+   state.collapsing_tiles = collapsing_tiles
+
+   local recent_scores = {}
+   foreach(state.recent_scores, function(recent_score)
+              if state.time - recent_score.time < max_recent_score_timer then
+                 add(recent_scores, recent_score)
+              end
+   end)
+   state.recent_scores = recent_scores
 
    for dir = 0, 3 do
       if btnp(dir) then
@@ -319,13 +363,35 @@ function _draw()
       spr(sprite, x, y)
    end
 
-   for x = 1, map_size do
-      for y = 1, map_size do
+   local start_x, start_y = screen_to_tile(cam.sx, cam.sy)
+   local end_x, end_y = screen_to_tile(cam.sx + 128, cam.sy + 128)
+
+   start_x = flr(min(max(1, start_x), map_size))
+   end_x = ceil(min(max(1, end_x), map_size))
+   start_y = flr(min(max(1, start_y), map_size))
+   end_y = ceil(min(max(1, end_y), map_size))
+
+   for x = start_x, end_x do
+      for y = start_y, end_y do
          local idx = to_1d_idx(x, y, map_size)
          local tile_type = state.map[idx]
          draw_tile(x, y, tile_type)
       end
    end
+
+   foreach(state.collapsing_tiles, function(collapsing_tile)
+              local collapse_frac = max(0, 1 - (state.time - collapsing_tile.time) / max_tile_collapse_timer)
+              assert(collapse_frac > 0)
+
+              local tx = collapsing_tile.tx
+              local ty = collapsing_tile.ty
+
+              local d_tpos = (collapse_frac % 0.1 > 0.05 and 1 / 8 or 0)
+              local idx = to_1d_idx(tx, ty, map_size)
+              local tile_type = state.map[idx]
+              draw_tile(tx, ty, 0)
+              draw_tile(tx + d_tpos, ty + d_tpos, tile_type)
+   end)
 
    local move_frac = 1 - max(0, player.move_timer / max_move_timer)
 
@@ -353,24 +419,21 @@ function _draw()
    camera(0, 0)
    print(state.score, 10, 10)
 
-   local recent_scores = {}
    foreach(state.recent_scores, function(recent_score)
-              local recent_score_frac = max(0, 1 - (state.time - recent_score.time) / 20)
-              if recent_score_frac > 0 then
-                 local tx, ty = recent_score.tx, recent_score.ty
-                 local sx, sy = tile_to_screen(tx, ty)
-                 sx -= cam.sx
-                 sy -= cam.sy
+              local recent_score_frac = max(0, 1 - (state.time - recent_score.time) / max_recent_score_timer)
+              assert(recent_score_frac > 0)
 
-                 sy += recent_score_frac * 10 - 10
-                 color(get_value_color(recent_score.value))
-                 print("+"..recent_score.value, sx, sy)
+              local tx, ty = recent_score.tx, recent_score.ty
+              local sx, sy = tile_to_screen(tx, ty)
+              sx -= cam.sx
+              sy -= cam.sy
 
-                 add(recent_scores, recent_score)
-              end
+              sy += recent_score_frac * 10 - 10
+              color(get_value_color(recent_score.value))
+              print("+"..recent_score.value, sx, sy)
+
+              add(recent_scores, recent_score)
    end)
-
-   state.recent_scores = recent_scores
 end
 
 __gfx__
