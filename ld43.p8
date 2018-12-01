@@ -5,7 +5,7 @@ __lua__
 local template_size = { width = 8, height = 8 }
 local map_size = {
    width = 2 * template_size.width,
-   height = 10 * template_size.height
+   height = 20 * template_size.height
 }
 local max_move_timer = 5
 local max_player_length = 20
@@ -307,7 +307,7 @@ end
 function _update()
    state.time += 1
    state.collapse_timer -= state.collapse_speed
-   state.collapse_speed *= 1.0001
+   state.collapse_speed *= 1.0005
    state.collapse_speed = min(state.collapse_speed, 200)
 
    local cam = state.camera
