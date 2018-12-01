@@ -162,33 +162,94 @@ for tx = 0, 127, template_size.width do
       if mget(tx, ty) then
 
          local template = {}
-         add(templates, template)
+         local is_empty = true
 
          for x = 0, template_size.width - 1 do
             for y = 0, template_size.height - 1 do
                local idx = to_1d_idx(x + 1, y + 1, template_size)
-               template[idx] = mget(tx + x, ty + y)
+               local tile_type = mget(tx + x, ty + y)
+
+               if tile_type != tile_types.solid then
+                  is_empty = false
+               end
+
+               template[idx] = tile_type
             end
+         end
+
+         if not is_empty then
+            add(templates, template)
          end
       end
    end
 end
 
-for x = 1, map_size.width do
-   for y = 1, map_size.height do
-      local idx = to_1d_idx(x, y, map_size)
-      local tidx = to_1d_idx(
-         ((x - 1) % template_size.width) + 1,
-         ((y - 1) % template_size.height) + 1,
-         template_size
-      )
+function template_connects_to_map(tx_min, tx_max, ty_min, ty_max, dir_x, dir_y, template, map)
+   for tx = tx_min, tx_max do
+      for ty = ty_min, ty_max do
+         local map_idx = to_1d_idx(tx + dir_x, ty + dir_y, map_size)
+         local tidx = to_1d_idx(
+            ((tx - 1) % template_size.width) + 1,
+            ((ty - 1) % template_size.height) + 1,
+            template_size
+         )
 
-      local tile_type = templates[1][tidx]
-      if tile_type == tile_types.placeholder then
-         tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
+         local map_tile_type = map[map_idx]
+         local template_tile_type = template[tidx]
+
+         if map_tile_type != tile_types.solid and template_tile_type != tile_types.solid then
+            return true
+         end
+      end
+   end
+
+   return false
+end
+
+local template_count = #templates
+for template_x = 0, map_size.width / template_size.width - 1 do
+   for template_y = 0, map_size.height / template_size.height - 1 do
+
+      local tx_min = template_x * template_size.width + 1
+      local tx_max = (template_x + 1) * template_size.width
+      local ty_min = template_y * template_size.height + 1
+      local ty_max = (template_y + 1) * template_size.height
+
+      local template_idx = flr(rnd(template_count))
+      local template = nil
+      for i = 1, template_count do
+         template = templates[template_idx + 1]
+
+         local connects_to_map = (template_x == 0 and template_y == 0) or
+            template_connects_to_map(tx_max, tx_max, ty_min, ty_max, 1, 0, template, state.map) or
+            template_connects_to_map(tx_min, tx_min, ty_min, ty_max, -1, 0, template, state.map) or
+            template_connects_to_map(tx_min, tx_max, ty_max, ty_max, 0, 1, template, state.map) or
+            template_connects_to_map(tx_min, tx_max, ty_min, ty_min, 0, -1, template, state.map)
+
+         if connects_to_map then
+            break
+         end
+
+         template_idx = (template_idx + 1) % template_count
       end
 
-      state.map[idx] = tile_type
+      for tx = tx_min, tx_max do
+         for ty = ty_min, ty_max do
+            local idx = to_1d_idx(tx, ty, map_size)
+            local tidx = to_1d_idx(
+               ((tx - 1) % template_size.width) + 1,
+               ((ty - 1) % template_size.height) + 1,
+               template_size
+            )
+
+            local tile_type = template[tidx]
+            if tile_type == tile_types.placeholder then
+               tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
+            end
+
+            state.map[idx] = tile_type
+         end
+      end
    end
 end
 
