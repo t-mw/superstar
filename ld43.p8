@@ -26,12 +26,23 @@ local tile_types = {
    wall = 1,
    floor = 2,
    placeholder = 3,
-   source = 4,
-   destination = 5
+   source_1 = 4,
+   source_2 = 5,
+   source_3 = 6,
+   destination = 7,
+   empty_cargo = 8
 }
 
 function is_empty_tile_type(tile_type)
    return tile_type >= tile_types.floor
+end
+
+function is_source_tile_type(tile_type)
+   return tile_type and tile_type >= tile_types.source_1 and tile_type <= tile_types.source_3
+end
+
+function get_random_source_tile_type()
+   return tile_types.source_1 + flr(rnd(tile_types.source_3 - tile_types.source_1 + 1))
 end
 
 function dir_to_dx_dy(dir)
@@ -124,7 +135,7 @@ for x = 1, map_size do
 
       local tile_type = templates[1][tidx]
       if tile_type == tile_types.placeholder then
-         tile_type = rnd(1) < 0.5 and tile_types.source or tile_types.destination
+         tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
       end
 
       state.map[idx] = tile_type
@@ -139,9 +150,6 @@ function try_move(player, map, dir)
 
    if player.move_timer <= 0 and is_tile_empty(tx, ty, map) then
       player.move_timer = max_move_timer
-
-      local idx = to_1d_idx(tx, ty, map_size)
-      local tile_type = map[idx]
 
       -- destroy tail on collision
       local destroy_tail_idx = nil
@@ -160,8 +168,10 @@ function try_move(player, map, dir)
       end
 
       -- collect source
-      if tile_type == tile_types.source then
+      local idx = to_1d_idx(tx, ty, map_size)
+      local tile_type = map[idx]
 
+      if is_source_tile_type(tile_type) then
          add(player.tail, tile_type)
          if #player.tail > max_player_length then
             for i = 1, #player.tail do
@@ -172,11 +182,33 @@ function try_move(player, map, dir)
          map[idx] = tile_types.floor
       end
 
+      -- clean up empty cargo from previous move
+      local new_tail = {}
+      for i = 1, #player.tail do
+         if player.tail[i] != tile_types.empty_cargo then
+            add(new_tail, player.tail[i])
+         end
+      end
+      player.tail = new_tail
+
       -- shift positions forward by one
       for i = max_player_length, 1, -1 do
-         player.positions[i] = player.positions[i - 1]
+         player.positions[i] =  player.positions[i - 1]
       end
       player.positions[1] = { tx = tx, ty = ty, dir = dir }
+
+      -- check for destination
+      for i = 2, #player.positions do
+         local pos = player.positions[i]
+
+         local idx = to_1d_idx(pos.tx, pos.ty, map_size)
+         local tile_type = map[idx]
+
+         if tile_type == tile_types.destination and is_source_tile_type(player.tail[i - 1]) then
+            player.tail[i - 1] = tile_types.empty_cargo
+            map[idx] = tile_types.floor
+         end
+      end
 
       return true
    end
@@ -241,8 +273,8 @@ function _draw()
          clr = 6
       else
          local tile_type = player.tail[i - 1]
-         if tile_type != nil then
-            clr = 7
+         if tile_type then
+            clr = tile_type
          end
       end
 
@@ -256,7 +288,7 @@ function _draw()
          local tx = lerp(tx0, pos.tx, move_frac)
          local ty = lerp(ty0, pos.ty, move_frac)
 
-         draw_tile(tx, ty, 6 + i)
+         draw_tile(tx, ty, clr)
       end
    end
 end
