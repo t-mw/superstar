@@ -143,6 +143,23 @@ function try_move(player, map, dir)
       local idx = to_1d_idx(tx, ty, map_size)
       local tile_type = map[idx]
 
+      -- destroy tail on collision
+      local destroy_tail_idx = nil
+      for i = 2, #player.positions do
+         local pos = player.positions[i]
+         if pos.tx == tx and pos.ty == ty then
+            destroy_tail_idx = i - 1
+            break
+         end
+      end
+
+      if destroy_tail_idx then
+         for i = destroy_tail_idx, #player.tail do
+            player.tail[i] = nil
+         end
+      end
+
+      -- collect source
       if tile_type == tile_types.source then
 
          add(player.tail, tile_type)
@@ -155,6 +172,7 @@ function try_move(player, map, dir)
          map[idx] = tile_types.floor
       end
 
+      -- shift positions forward by one
       for i = max_player_length, 1, -1 do
          player.positions[i] = player.positions[i - 1]
       end
