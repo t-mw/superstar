@@ -6,11 +6,33 @@ local template_size = 8
 local map_size_templates = 2
 local map_size = map_size_templates * template_size
 local max_move_timer = 5
+local max_player_length = 20
 
 local state = {
+   map = {},
    camera = { sx = 0, sy = 0 },
-   player = { tx = 1, ty = 1, dir = 0, input_dir = 0, move_timer = max_move_timer }
+   player = {
+      input_dir = 0,
+      move_timer = max_move_timer,
+      tail = {},
+      positions = {
+         { tx = 1, ty = 1, dir = 0 }
+      }
+   }
 }
+
+local tile_types = {
+   empty = 0,
+   wall = 1,
+   floor = 2,
+   placeholder = 3,
+   source = 4,
+   destination = 5
+}
+
+function is_empty_tile_type(tile_type)
+   return tile_type >= tile_types.floor
+end
 
 function dir_to_dx_dy(dir)
    if dir == 0 then
@@ -61,8 +83,16 @@ function is_tile_empty(tx, ty, map)
       return false
    end
 
-   local tile = map[to_1d_idx(tx, ty, map_size)]
-   return tile == 2 or tile == 3
+   return is_empty_tile_type(map[to_1d_idx(tx, ty, map_size)])
+end
+
+function get_current_player_tile(player)
+   local pos = player.positions[1]
+   return pos.tx, pos.ty
+end
+
+function get_current_player_dir(player)
+   return player.positions[1].dir
 end
 
 local templates = {}
@@ -83,7 +113,6 @@ for tx = 0, 127, template_size do
    end
 end
 
-local map = {}
 for x = 1, map_size do
    for y = 1, map_size do
       local idx = to_1d_idx(x, y, map_size)
@@ -93,13 +122,54 @@ for x = 1, map_size do
          template_size
       )
 
-      map[idx] = templates[1][tidx]
+      local tile_type = templates[1][tidx]
+      if tile_type == tile_types.placeholder then
+         tile_type = rnd(1) < 0.5 and tile_types.source or tile_types.destination
+      end
+
+      state.map[idx] = tile_type
    end
+end
+
+function try_move(player, map, dir)
+   local dx, dy = dir_to_dx_dy(dir)
+   local tx0, ty0 = get_current_player_tile(player)
+   local tx = tx0 + dx
+   local ty = ty0 + dy
+
+   if player.move_timer <= 0 and is_tile_empty(tx, ty, map) then
+      player.move_timer = max_move_timer
+
+      local idx = to_1d_idx(tx, ty, map_size)
+      local tile_type = map[idx]
+
+      if tile_type == tile_types.source then
+
+         add(player.tail, tile_type)
+         if #player.tail > max_player_length then
+            for i = 1, #player.tail do
+               player.positions[i] = player.positions[i + 1]
+            end
+         end
+
+         map[idx] = tile_types.floor
+      end
+
+      for i = max_player_length, 1, -1 do
+         player.positions[i] = player.positions[i - 1]
+      end
+      player.positions[1] = { tx = tx, ty = ty, dir = dir }
+
+      return true
+   end
+
+   return false
 end
 
 function _update()
    local cam = state.camera
    local player = state.player
+   local map = state.map
 
    player.move_timer -= 1
 
@@ -109,28 +179,13 @@ function _update()
       end
    end
 
-   function try_move(dir)
-      local dx, dy = dir_to_dx_dy(dir)
-
-      local tx = player.tx + dx
-      local ty = player.ty + dy
-
-      if player.move_timer <= 0 and is_tile_empty(tx, ty, map) then
-         player.tx = tx
-         player.ty = ty
-         player.dir = dir
-         player.move_timer = max_move_timer
-         return true
-      end
-
-      return false
-   end
-
-   if try_move(player.input_dir) or try_move(player.dir) then end
+   if try_move(player, map, player.input_dir) or
+   try_move(player, map, get_current_player_dir(player)) then end
 
    local padding = 40
-   local sx_max, sy_max = tile_to_screen(player.tx + 1, player.ty + 1)
-   local sx_min, sy_min = tile_to_screen(player.tx, player.ty)
+   local tx, ty = get_current_player_tile(player)
+   local sx_max, sy_max = tile_to_screen(tx + 1, ty + 1)
+   local sx_min, sy_min = tile_to_screen(tx, ty)
 
    local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
    local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
@@ -142,34 +197,50 @@ function _draw()
    cls(0)
    camera(state.camera.sx, state.camera.sy)
 
-   function draw_tile(tx, ty, clr)
+   function draw_tile(tx, ty, tile_type)
       local x0, y0 = tile_to_screen(tx, ty)
       local x1, y1 = tile_to_screen(tx + 1, ty + 1)
       x1 -= 1
       y1 -= 1
-      rectfill(x0, y0, x1, y1, clr)
+      rectfill(x0, y0, x1, y1, tile_type)
    end
 
    for x = 1, map_size do
       for y = 1, map_size do
          local idx = to_1d_idx(x, y, map_size)
-         local clr = map[idx]
-         draw_tile(x, y, clr)
+         local tile_type = state.map[idx]
+         draw_tile(x, y, tile_type)
       end
-   end
-
-   function get_prev_player_position(player)
-      local dx, dy = dir_to_dx_dy(player.dir)
-      return player.tx - dx, player.ty - dy
    end
 
    local player = state.player
    local move_frac = 1 - max(0, player.move_timer / max_move_timer)
-   local tx0, ty0 = get_prev_player_position(player)
-   local sx = lerp(tx0, player.tx, move_frac)
-   local sy = lerp(ty0, player.ty, move_frac)
 
-   draw_tile(sx, sy, 5)
+   for i = 1, #player.positions do
+      local clr
+
+      if i == 1 then
+         clr = 6
+      else
+         local tile_type = player.tail[i - 1]
+         if tile_type != nil then
+            clr = 7
+         end
+      end
+
+      if clr then
+         local pos = player.positions[i]
+         local dx, dy = dir_to_dx_dy(pos.dir)
+
+         local tx0 = pos.tx - dx;
+         local ty0 = pos.ty - dy;
+
+         local tx = lerp(tx0, pos.tx, move_frac)
+         local ty = lerp(ty0, pos.ty, move_frac)
+
+         draw_tile(tx, ty, 6 + i)
+      end
+   end
 end
 
 __gfx__
