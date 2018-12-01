@@ -7,7 +7,8 @@ local map_size_templates = 2
 local map_size = map_size_templates * template_size
 
 local state = {
- camera = { x = 0, y = 0 }
+   camera = { sx = 0, sy = 0 },
+   player = { tx = 1, ty = 1 }
 }
 
 function to_1d_idx(x, y, size)
@@ -16,6 +17,10 @@ end
 
 function to_2d_idx(i, size)
   return flr((i - 1) / size) + 1, ((i - 1) % size) + 1
+end
+
+function tile_to_screen(tx, ty)
+   return tx * 10, ty * 10
 end
 
 if true then
@@ -64,32 +69,53 @@ end
 
 function _update()
    local cam = state.camera
+   local player = state.player
 
-   if btn(0) then
-      cam.x -= 1
+   if btnp(0) then
+      player.tx -= 1
    end
-   if btn(1) then
-      cam.x += 1
+   if btnp(1) then
+      player.tx += 1
    end
-   if btn(2) then
-      cam.y -= 1
+   if btnp(2) then
+      player.ty -= 1
    end
-   if btn(3) then
-      cam.y += 1
+   if btnp(3) then
+      player.ty += 1
    end
+
+   local padding = 40
+   local sx_max, sy_max = tile_to_screen(player.tx + 1, player.ty + 1)
+   local sx_min, sy_min = tile_to_screen(player.tx, player.ty)
+
+   local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
+   local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
+   cam.sx += xdiff / 20
+   cam.sy += ydiff / 20
 end
 
 function _draw()
    cls(0)
-   camera(state.camera.x, state.camera.y)
+   camera(state.camera.sx, state.camera.sy)
+
+   function draw_tile(tx, ty, clr)
+      local x0, y0 = tile_to_screen(tx, ty)
+      local x1, y1 = tile_to_screen(tx + 1, ty + 1)
+      x1 -= 1
+      y1 -= 1
+      rectfill(x0, y0, x1, y1, clr)
+   end
 
    for x = 1, map_size do
       for y = 1, map_size do
          local idx = to_1d_idx(x, y, map_size)
          local clr = map[idx]
-         rectfill(x * 10, y * 10, (x + 1) * 10, (y + 1) * 10, clr)
+         draw_tile(x, y, clr)
       end
    end
+
+   local player = state.player
+   draw_tile(player.tx, player.ty, 5)
 end
 
 __gfx__
