@@ -5,14 +5,15 @@ __lua__
 local template_size = { width = 8, height = 8 }
 local map_size = {
    width = 2 * template_size.width,
-   height = 20 * template_size.height
+   height = 60 * template_size.height
 }
 local max_move_timer = 5
-local max_player_length = 20
+local max_player_length = 50
 local max_collapse_timer = 50
 local max_recent_score_timer = 20
 local max_tile_collapse_timer = 40
 local game_over_show_time = 20
+local player_collapse_threshold = 18
 local star_map = {
    tx = 24,
    ty = 0,
@@ -249,6 +250,10 @@ function get_tail_is_emptying(tail_item)
    return tail_item.is_emptying
 end
 
+function is_high_value(value)
+   return value >= 20
+end
+
 function get_tail_sprite(tail_item, player_position)
    local value = get_tail_value(tail_item, player_position)
    if value < 10 then
@@ -374,7 +379,7 @@ function try_move(player, map, dir)
          is_source_tile_type(get_tail_tile_type(tail_item)) then
             local value = get_tail_value(tail_item, player.positions[1])
             state.score += value
-            sfx(26)
+            sfx(is_high_value(value) and 28 or 26)
 
             add(state.recent_scores, {
                    value = value,
@@ -434,7 +439,7 @@ function _update()
 
       local player_tx, player_ty = get_player_tile(player)
       local prev_ty = state.collapsing_ty
-      local max_ty = player_ty + 20
+      local max_ty = player_ty + player_collapse_threshold
       if state.collapsing_ty > max_ty then
          state.collapsing_ty = max_ty
       else
@@ -443,7 +448,7 @@ function _update()
 
       -- random tile
       local tx = flr(rnd(map_size.width + 1))
-      local ty = flr(rnd(map_size.height + 1))
+      local ty = state.collapsing_ty - flr(rnd(player_collapse_threshold))
 
       if is_tile_empty(tx, ty, map) then
          add(state.collapsing_tiles, { tx = tx, ty = ty, time = state.time })
@@ -849,6 +854,7 @@ __sfx__
 00090000201701e1601c16018160161501515012140101400f1300c1300a120071200411000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000500003f050310503f05032050150003f0003d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 000100003b350273501f3500000000000000000000000000000000000000000023000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0004000002050070500b0501005015050190501e05021050260502b0502e00001000310000600025050250502505038000380503805038050340003400000000000000000000000000003f000000000000000000
 __music__
 00 42020344
 00 01050604
