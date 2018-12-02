@@ -33,7 +33,8 @@ local tile_types = {
    source_1 = 3,
    source_2 = 4,
    source_3 = 5,
-   destination = 6
+   destination = 6,
+   destination_used = 7
 }
 
 function is_empty_tile_type(tile_type)
@@ -202,6 +203,14 @@ function create_state()
    }
 end
 
+function is_tile_type(tx, ty, map, tile_type)
+   if not is_valid_idx(tx, ty, map_size) then
+      return false
+   end
+
+   return map[to_1d_idx(tx, ty, map_size)] == tile_type
+end
+
 function is_tile_empty(tx, ty, map)
    if not is_valid_idx(tx, ty, map_size) then
       return false
@@ -333,7 +342,7 @@ function try_move(player, map, dir)
             })
 
             tail_item.is_emptying = true
-            map[idx] = tile_types.floor
+            map[idx] = tile_types.destination_used
          end
       end
 
@@ -440,6 +449,7 @@ end
 function _draw()
    local player = state.player
    local cam = state.camera;
+   local map = state.map
 
    cls(0)
 
@@ -461,23 +471,55 @@ function _draw()
       sspr((sprite % 16) * 8, flr(sprite / 16) * 8, 8, 8, x + 4 - flr(width / 2), y + 4 - flr(height / 2), width, height)
    end
 
+   function draw_destination_sprites(tx, ty, is_used)
+      local slow_time = flr((state.time + ty) / 3)
+      local blink = slow_time % 40 == 0
+
+      if not is_used and blink then
+         pal(11, 7)
+         pal(3, 7)
+         pal(6, 7)
+      end
+
+      for dir = 0, 3 do
+         local dx, dy = dir_to_dx_dy(dir)
+         if is_tile_type(tx + dx, ty + dy, map, tile_types.solid) then
+            draw_tile_sprite(tx + dx, ty + dy, 9)
+            break
+         end
+      end
+
+      if not is_used then
+         draw_tile_sprite(tx, ty, 8)
+      end
+
+      pal()
+   end
+
+   function draw_floor_sprite(tx, ty)
+      -- offset to align tiles with objects above, since we don't have z
+      local base_offset_x = -2
+      local base_offset_y = 2
+      draw_tile_sprite(tx, ty, 32, 1, 1, base_offset_x, base_offset_y)
+      draw_tile_sprite(tx, ty, 33, 1, 1, base_offset_x + 8, base_offset_y + 0)
+      draw_tile_sprite(tx, ty, 48, 1, 1, base_offset_x + 0, base_offset_y + 8)
+      draw_tile_sprite(tx, ty, 49, 1, 1, base_offset_x + 8, base_offset_y + 8)
+   end
+
    function draw_tile_type_sprite(tx, ty, tile_type)
       if tile_type == tile_types.solid then
          return
       else
-         -- offset to align tiles with objects above, since we don't have z
-         local base_offset_x = -2
-         local base_offset_y = 2
-         draw_tile_sprite(tx, ty, 32, 1, 1, base_offset_x, base_offset_y)
-         draw_tile_sprite(tx, ty, 33, 1, 1, base_offset_x + 8, base_offset_y + 0)
-         draw_tile_sprite(tx, ty, 48, 1, 1, base_offset_x + 0, base_offset_y + 8)
-         draw_tile_sprite(tx, ty, 49, 1, 1, base_offset_x + 8, base_offset_y + 8)
+         draw_floor_sprite(tx, ty)
 
          if tile_type == tile_types.floor then
          elseif is_source_tile_type(tile_type) then
-            draw_tile_sprite(tx, ty, 4)
-         elseif tile_type == tile_types.destination then
-            draw_tile_sprite(tx, ty, 2)
+            palt(7, true)
+            palt(0, false)
+            draw_tile_sprite(tx, ty, 7)
+            palt()
+         elseif tile_type == tile_types.destination or tile_type == tile_types.destination_used then
+            draw_destination_sprites(tx, ty, tile_type == tile_types.destination_used)
          else
             assert(false)
          end
@@ -516,23 +558,38 @@ function _draw()
    for x = start_x, end_x do
       for y = start_y, end_y do
          local idx = to_1d_idx(x, y, map_size)
-         local tile_type = state.map[idx]
+         local tile_type = map[idx]
          draw_tile_type_sprite(x, y, tile_type)
       end
    end
 
-   foreach(state.collapsing_tiles, function(collapsing_tile)
-              local collapse_frac = max(0, 1 - (state.time - collapsing_tile.time) / max_tile_collapse_timer)
-              assert(collapse_frac > 0)
+   function draw_collapsing_tiles(shake)
+      foreach(state.collapsing_tiles, function(collapsing_tile)
+                 local collapse_frac = max(0, 1 - (state.time - collapsing_tile.time) / max_tile_collapse_timer)
+                 assert(collapse_frac > 0)
 
-              local tx = collapsing_tile.tx
-              local ty = collapsing_tile.ty
+                 local tx = collapsing_tile.tx
+                 local ty = collapsing_tile.ty
 
-              local d_tpos = (collapse_frac % 0.1 > 0.05 and 1 / 8 or 0)
-              local idx = to_1d_idx(tx, ty, map_size)
-              local tile_type = state.map[idx]
-              draw_tile_type_sprite(tx + d_tpos, ty + d_tpos, tile_type)
-   end)
+                 local d_tpos = (collapse_frac % 0.1 > 0.05 and 1 / 8 or 0)
+                 if not shake then
+                    d_tpos = 0
+                 end
+
+                 local idx = to_1d_idx(tx, ty, map_size)
+                 local tile_type = state.map[idx]
+                 draw_tile_type_sprite(tx + d_tpos, ty + d_tpos, tile_type)
+      end)
+   end
+
+   -- blacken static tiles
+   for c = 1, 15 do
+      pal(c, 0)
+   end
+   draw_collapsing_tiles(false)
+   pal()
+
+   draw_collapsing_tiles(true)
 
    local move_frac = 1 - max(0, player.move_timer / max_move_timer)
 
@@ -613,14 +670,14 @@ function _draw()
 end
 
 __gfx__
-0000000066666666bbbbbbbb00777700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000066666666bbbbbbbb07ccccc0009999000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0070070066666666bbbbbbbb0cc1111009999990000aa00000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0007700066666666bbbbbbbb0c1111100999999000aaaa0000077000000000000000000000000000000000000000000000000000000000000000000000000000
-0007700066666666bbbbbbbbec11111e0999999000aaaa0000077000000000000000000000000000000000000000000000000000000000000000000000000000
-0070070066666666bbbbbbbb2e22222209999990000aa00000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000066666666bbbbbbbb22222222009999000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0000000066666666bbbbbbbb02222220000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0000000066666666bbbbbbbb00777700000000000000000000000000749999470000000000000000000000000000000000000000000000000000000000000000
+0000000066666666bbbbbbbb07ccccc0009999000000000000000000499994470000000000060000000000000000000000000000000000000000000000000000
+0070070066666666bbbbbbbb0cc1111009999990000aa00000000000444444470000000000050600000000000000000000000000000000000000000000000000
+0007700066666666bbbbbbbb0c1111100999999000aaaa0000077000494444470000000000555500000000000000000000000000000000000000000000000000
+0007700066666666bbbbbbbbec11111e0999999000aaaa00000770004494444700333300005d5500000000000000000000000000000000000000000000000000
+0070070066666666bbbbbbbb2e22222209999990000aa0000000000044494447030bb03001555510000000000000000000000000000000000000000000000000
+0000000066666666bbbbbbbb22222222009999000000000000000000444444000300003011551511000000000000000000000000000000000000000000000000
+0000000066666666bbbbbbbb02222220000000000000000000000000700000070033330001111110000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000070000000700000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000007000000070000000700000000000000000000000000000000000000000000000000000000000000000000000000000
