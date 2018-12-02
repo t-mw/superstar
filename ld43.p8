@@ -427,7 +427,7 @@ function _update()
    if try_move(player, map, player.input_dir) or
    try_move(player, map, get_current_player_dir(player)) then end
 
-   local padding = 40
+   local padding = 80
    local tx, ty = get_current_player_tile(player)
    local sx_max, sy_max = tile_to_screen(tx + 1, ty + 1)
    local sx_min, sy_min = tile_to_screen(tx, ty)
