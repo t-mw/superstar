@@ -88,11 +88,13 @@ if true then
 end
 
 function tile_to_screen(tx, ty)
-   return tx * 8, ty * 8
+   return tx * 9 - 4 * ty, ty * 8
 end
 
 function screen_to_tile(sx, sy)
-   return sx / 8, sy / 8
+   local ty = sy / 8
+   local tx = (sx + 4 * ty) / 9
+   return tx, ty
 end
 
 function lerp(a, b, t)
@@ -449,18 +451,44 @@ function _draw()
       rectfill(x0, y0, x1, y1, tile_type)
    end
 
-   function draw_tile_sprite(tx, ty, sprite, width, height)
+   function draw_tile_sprite(tx, ty, sprite, width, height, offset_x, offset_y)
       local x, y = tile_to_screen(tx, ty)
+      x += (offset_x or 0)
+      y += (offset_y or 0)
+
       width = width == nil and 8 or flr(width * 8)
       height = height == nil and 8 or flr(height * 8)
       sspr((sprite % 16) * 8, flr(sprite / 16) * 8, 8, 8, x + 4 - flr(width / 2), y + 4 - flr(height / 2), width, height)
+   end
+
+   function draw_tile_type_sprite(tx, ty, tile_type)
+      if tile_type == tile_types.solid then
+         return
+      else
+         -- offset to align tiles with objects above, since we don't have z
+         local base_offset_x = -2
+         local base_offset_y = 2
+         draw_tile_sprite(tx, ty, 32, 1, 1, base_offset_x, base_offset_y)
+         draw_tile_sprite(tx, ty, 33, 1, 1, base_offset_x + 8, base_offset_y + 0)
+         draw_tile_sprite(tx, ty, 48, 1, 1, base_offset_x + 0, base_offset_y + 8)
+         draw_tile_sprite(tx, ty, 49, 1, 1, base_offset_x + 8, base_offset_y + 8)
+
+         if tile_type == tile_types.floor then
+         elseif is_source_tile_type(tile_type) then
+            draw_tile_sprite(tx, ty, 4)
+         elseif tile_type == tile_types.destination then
+            draw_tile_sprite(tx, ty, 2)
+         else
+            assert(false)
+         end
+      end
    end
 
    for tx = 1, 16 do
       for ty = 1, 16 do
          local star_sprite = mget(star_map.tx + (tx - 1) % star_map.width, star_map.ty + (ty - 1) % star_map.height)
          if star_sprite != 0 then
-            draw_tile_sprite(tx, ty, star_sprite)
+            spr(star_sprite, tx * 8, ty * 8)
          end
       end
    end
@@ -489,10 +517,7 @@ function _draw()
       for y = start_y, end_y do
          local idx = to_1d_idx(x, y, map_size)
          local tile_type = state.map[idx]
-
-         if tile_type != tile_types.solid then
-            draw_tile(x, y, tile_type)
-         end
+         draw_tile_type_sprite(x, y, tile_type)
       end
    end
 
@@ -506,8 +531,7 @@ function _draw()
               local d_tpos = (collapse_frac % 0.1 > 0.05 and 1 / 8 or 0)
               local idx = to_1d_idx(tx, ty, map_size)
               local tile_type = state.map[idx]
-              draw_tile(tx, ty, 0)
-              draw_tile(tx + d_tpos, ty + d_tpos, tile_type)
+              draw_tile_type_sprite(tx + d_tpos, ty + d_tpos, tile_type)
    end)
 
    local move_frac = 1 - max(0, player.move_timer / max_move_timer)
@@ -594,6 +618,16 @@ __gfx__
 0003000000000000000000000000a000000000000000700000007000000000000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000000000000000000000000000000000000000700000007000000000000000000000000000000000000000000000000000000000000000000
 00000000000000000700000000000000000000000000000000000070000000700000007000000000000000000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00055555555560000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00055555555560000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00555555555600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00555555555600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+05555555556000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+05555555556000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+55555555560000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+55555555560000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+ddddddddd00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __map__
 0101000000000000000100000000000000000000000000000000001100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0101000201010000000100000000000000000000000000000000000000000000000000130000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
