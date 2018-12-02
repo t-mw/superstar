@@ -607,12 +607,11 @@ function _draw()
          local is_game_over = state.game_over_time >= 0
 
          local float_frac = 0.5 * (1 + sin(state.time / 30))
+         local fall_frac = 0
 
-         local w, h = 1, 1
          if is_game_over then
-            local fall_frac = max(0, 1 - (state.time - state.game_over_time) / 10)
-            w = fall_frac
-            h = fall_frac
+            fall_frac = min(1, (state.time - state.game_over_time) / 100)
+            float_frac = 0
          else
             -- draw shadow
             palt(7, true)
@@ -621,7 +620,9 @@ function _draw()
             palt()
          end
 
-         draw_tile_sprite(tx, ty, 3, w, h, 0, -2 - float_frac * 4)
+         local w = 1 - fall_frac
+         local h = 1 - fall_frac
+         draw_tile_sprite(tx, ty, 3, w, h, 0, -2 - float_frac * 4 + fall_frac * 40)
 
          if is_game_over then
             break
