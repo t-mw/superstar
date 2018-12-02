@@ -13,25 +13,7 @@ local max_collapse_timer = 50
 local max_recent_score_timer = 20
 local max_tile_collapse_timer = 40
 
-local state = {
-   time = 0,
-   map = {},
-   camera = { sx = 0, sy = 0 },
-   score = 0,
-   recent_scores = {},
-   collapsing_tiles = {},
-   collapsing_ty = map_size.height,
-   collapse_timer = max_collapse_timer,
-   collapse_speed = 1,
-   player = {
-      input_dir = 0,
-      move_timer = max_move_timer,
-      tail = {},
-      positions = {
-         { tx = 1, ty = map_size.height, dir = 0 }
-      }
-   }
-}
+local state
 
 local tile_types = {
    solid = 0,
@@ -64,6 +46,8 @@ function dir_to_dx_dy(dir)
       return 0, -1
    elseif dir == 3 then
       return 0, 1
+   else
+      return 0, 0
    end
 end
 
@@ -102,6 +86,106 @@ end
 
 function lerp(a, b, t)
    return a + (b - a) * t
+end
+
+
+local templates = {}
+for tx = 0, 127, template_size.width do
+   for ty = 0, 127, template_size.height do
+      if mget(tx, ty) then
+
+         local template = {}
+         local is_empty = true
+
+         for x = 0, template_size.width - 1 do
+            for y = 0, template_size.height - 1 do
+               local idx = to_1d_idx(x + 1, y + 1, template_size)
+               local tile_type = mget(tx + x, ty + y)
+
+               if tile_type != tile_types.solid then
+                  is_empty = false
+               end
+
+               template[idx] = tile_type
+            end
+         end
+
+         if not is_empty then
+            add(templates, template)
+         end
+      end
+   end
+end
+
+function create_state()
+   -- generate map
+   local map = {}
+   local template_count = #templates
+   for template_x = 0, map_size.width / template_size.width - 1 do
+      for template_y = 0, map_size.height / template_size.height - 1 do
+
+         local tx_min = template_x * template_size.width + 1
+         local tx_max = (template_x + 1) * template_size.width
+         local ty_min = template_y * template_size.height + 1
+         local ty_max = (template_y + 1) * template_size.height
+
+         local template = templates[flr(rnd(template_count)) + 1]
+
+         for tx = tx_min, tx_max do
+            for ty = ty_min, ty_max do
+               local idx = to_1d_idx(tx, ty, map_size)
+               local tidx = to_1d_idx(
+                  ((tx - 1) % template_size.width) + 1,
+                  ((ty - 1) % template_size.height) + 1,
+                  template_size
+               )
+
+               local tile_type = template[tidx]
+               if tile_type == tile_types.placeholder then
+                  tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
+               end
+
+               map[idx] = tile_type
+            end
+         end
+      end
+   end
+
+   -- place player
+   local player_ty = map_size.height - 5
+   local player_tx = flr(rnd(map_size.width + 1))
+   for tx = 1, map_size.width do
+      player_tx = player_tx % map_size.width + 1
+
+      if is_tile_empty(player_tx, player_ty, map) then
+         break
+      end
+   end
+
+   -- snap camera to player
+   local sx, sy = tile_to_screen(player_tx, player_ty)
+   camera_sx = sx - 64
+   camera_sy = sy - 64
+
+   return {
+      time = 0,
+      map = map,
+      camera = { sx = camera_sx, sy = camera_sy },
+      score = 0,
+      recent_scores = {},
+      collapsing_tiles = {},
+      collapsing_ty = map_size.height,
+      collapse_timer = max_collapse_timer,
+      collapse_speed = 1,
+      player = {
+         input_dir = -1,
+         move_timer = max_move_timer,
+         tail = {},
+         positions = {
+            { tx = player_tx, ty = player_ty, dir = -1 }
+         }
+      }
+   }
 end
 
 function is_tile_empty(tx, ty, map)
@@ -153,65 +237,6 @@ function get_value_color(value)
       return 10
    else
       return 9
-   end
-end
-
-local templates = {}
-for tx = 0, 127, template_size.width do
-   for ty = 0, 127, template_size.height do
-      if mget(tx, ty) then
-
-         local template = {}
-         local is_empty = true
-
-         for x = 0, template_size.width - 1 do
-            for y = 0, template_size.height - 1 do
-               local idx = to_1d_idx(x + 1, y + 1, template_size)
-               local tile_type = mget(tx + x, ty + y)
-
-               if tile_type != tile_types.solid then
-                  is_empty = false
-               end
-
-               template[idx] = tile_type
-            end
-         end
-
-         if not is_empty then
-            add(templates, template)
-         end
-      end
-   end
-end
-
-local template_count = #templates
-for template_x = 0, map_size.width / template_size.width - 1 do
-   for template_y = 0, map_size.height / template_size.height - 1 do
-
-      local tx_min = template_x * template_size.width + 1
-      local tx_max = (template_x + 1) * template_size.width
-      local ty_min = template_y * template_size.height + 1
-      local ty_max = (template_y + 1) * template_size.height
-
-      local template = templates[flr(rnd(template_count)) + 1]
-
-      for tx = tx_min, tx_max do
-         for ty = ty_min, ty_max do
-            local idx = to_1d_idx(tx, ty, map_size)
-            local tidx = to_1d_idx(
-               ((tx - 1) % template_size.width) + 1,
-               ((ty - 1) % template_size.height) + 1,
-               template_size
-            )
-
-            local tile_type = template[tidx]
-            if tile_type == tile_types.placeholder then
-               tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
-            end
-
-            state.map[idx] = tile_type
-         end
-      end
    end
 end
 
@@ -305,6 +330,10 @@ function try_move(player, map, dir)
 end
 
 function _update()
+   if not state then
+      state = create_state()
+   end
+
    state.time += 1
    state.collapse_timer -= state.collapse_speed
    state.collapse_speed *= 1.0005
@@ -379,15 +408,10 @@ function _update()
    local tx, ty = get_current_player_tile(player)
    local sx_max, sy_max = tile_to_screen(tx + 1, ty + 1)
    local sx_min, sy_min = tile_to_screen(tx, ty)
-   if state.time == 1 then
-      cam.sx = sx_min - 64
-      cam.sy = sy_min - 64
-   else
-      local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
-      local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
-      cam.sx += xdiff / 20
-      cam.sy += ydiff / 20
-   end
+   local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
+   local ydiff = max(sy_max - (cam.sy + 128 - padding), 0) + min(sy_min - (cam.sy + padding), 0)
+   cam.sx += xdiff / 20
+   cam.sy += ydiff / 20
 end
 
 function _draw()
