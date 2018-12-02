@@ -12,8 +12,9 @@ local max_player_length = 20
 local max_collapse_timer = 50
 local max_recent_score_timer = 20
 local max_tile_collapse_timer = 40
+local game_over_show_time = 20
 
-local state
+local state = nil
 
 local tile_types = {
    solid = 0,
@@ -177,6 +178,7 @@ function create_state()
       collapsing_ty = map_size.height,
       collapse_timer = max_collapse_timer,
       collapse_speed = 1,
+      game_over_time = -1,
       player = {
          input_dir = -1,
          move_timer = max_move_timer,
@@ -330,7 +332,7 @@ function try_move(player, map, dir)
 end
 
 function _update()
-   if not state then
+   if not state or (state.game_over_time >= 0 and btnp(5)) then
       state = create_state()
    end
 
@@ -381,6 +383,11 @@ function _update()
               if state.time - collapsing_tile.time < max_tile_collapse_timer then
                  add(collapsing_tiles, collapsing_tile)
               else
+                 local player_tx, player_ty = get_current_player_tile(player)
+                 if player_tx == collapsing_tile.tx and player_ty == collapsing_tile.ty then
+                    state.game_over_time = state.time
+                 end
+
                  local idx = to_1d_idx(collapsing_tile.tx, collapsing_tile.ty, map_size)
                  map[idx] = tile_types.solid
               end
@@ -394,6 +401,10 @@ function _update()
               end
    end)
    state.recent_scores = recent_scores
+
+   if state.game_over_time >= 0 then
+      return
+   end
 
    for dir = 0, 3 do
       if btnp(dir) then
@@ -429,9 +440,11 @@ function _draw()
       rectfill(x0, y0, x1, y1, tile_type)
    end
 
-   function draw_tile_sprite(tx, ty, sprite)
+   function draw_tile_sprite(tx, ty, sprite, width, height)
       local x, y = tile_to_screen(tx, ty)
-      spr(sprite, x, y)
+      width = width == nil and 8 or flr(width * 8)
+      height = height == nil and 8 or flr(height * 8)
+      sspr(sprite * 8, 0, 8, 8, x + 4 - flr(width / 2), y + 4 - flr(height / 2), width, height)
    end
 
    local start_x, start_y = screen_to_tile(cam.sx, cam.sy)
@@ -477,7 +490,18 @@ function _draw()
       local ty = lerp(ty0, pos.ty, move_frac)
 
       if i == 1 then
-         draw_tile_sprite(tx, ty - 0.2 + 0.2 * sin(state.time / 30), 3)
+         local w, h = 1, 1
+         if state.game_over_time >= 0 then
+            local frac = max(0, 1 - (state.time - state.game_over_time) / 10)
+            w = frac
+            h = frac
+         end
+
+         draw_tile_sprite(tx, ty - 0.2 + 0.2 * sin(state.time / 30), 3, w, h)
+
+         if state.game_over_time >= 0 then
+            break
+         end
       else
          local tail_item = player.tail[i - 1]
          if tail_item then
@@ -489,7 +513,20 @@ function _draw()
 
    camera(0, 0)
    color(7)
-   print(state.score, 10, 10)
+
+   function hcenter(s)
+      return 64 - #s * 2
+   end
+
+   if state.game_over_time >= 0 and state.time - state.game_over_time > game_over_show_time then
+      local msg = "you scored "..state.score.."!"
+      print(msg, hcenter(msg), 60)
+
+      msg = "❎ to restart"
+      print(msg, hcenter(msg) - 2, 76)
+   else
+      print(state.score, 10, 10)
+   end
 
    foreach(state.recent_scores, function(recent_score)
               local recent_score_frac = max(0, 1 - (state.time - recent_score.time) / max_recent_score_timer)
