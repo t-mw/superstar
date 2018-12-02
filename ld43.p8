@@ -219,12 +219,12 @@ function is_tile_empty(tx, ty, map)
    return is_empty_tile_type(map[to_1d_idx(tx, ty, map_size)])
 end
 
-function get_current_player_tile(player)
-   local pos = player.positions[1]
+function get_player_tile(player, idx)
+   local pos = player.positions[idx or 1]
    return pos.tx, pos.ty
 end
 
-function get_current_player_dir(player)
+function get_player_dir(player)
    return player.positions[1].dir
 end
 
@@ -265,11 +265,38 @@ end
 
 function try_move(player, map, dir)
    local dx, dy = dir_to_dx_dy(dir)
-   local tx0, ty0 = get_current_player_tile(player)
-   local tx = tx0 + dx
-   local ty = ty0 + dy
 
-   if player.move_timer <= 0 and is_tile_empty(tx, ty, map) then
+   local player_tx, player_ty = get_player_tile(player)
+
+   local tx1 = player_tx + dx
+   local ty1 = player_ty + dy
+
+   local tx, ty = nil, nil
+   if is_tile_empty(tx1, ty1, map) then
+      if player.move_timer <= 0 then
+         tx = tx1
+         ty = ty1
+      end
+   elseif player.move_timer > max_move_timer * 0.3 and #player.positions > 2 then
+      -- allow moving as if from previous tile, within a certain time after the last move
+
+      local tx2, ty2 = get_player_tile(player, 2)
+      local tx3, ty3 = get_player_tile(player, 3)
+
+      tx2 += dx
+      ty2 += dy
+
+      if (tx2 != player_tx or ty2 != player_ty) and (tx2 != tx3 or ty2 != ty3) and is_tile_empty(tx2, ty2, map) then
+         tx = tx2
+         ty = ty2
+
+         for i = 1, max_player_length do
+            player.positions[i] = player.positions[i + 1]
+         end
+      end
+   end
+
+   if tx and ty then
       player.move_timer = max_move_timer
 
       -- destroy tail on collision
@@ -371,7 +398,7 @@ function _update()
    if state.collapse_timer < 0 then
       state.collapse_timer = max_collapse_timer
 
-      local player_tx, player_ty = get_current_player_tile(player)
+      local player_tx, player_ty = get_player_tile(player)
       local prev_ty = state.collapsing_ty
       local max_ty = player_ty + 20
       if state.collapsing_ty > max_ty then
@@ -404,7 +431,7 @@ function _update()
               if state.time - collapsing_tile.time < max_tile_collapse_timer then
                  add(collapsing_tiles, collapsing_tile)
               else
-                 local player_tx, player_ty = get_current_player_tile(player)
+                 local player_tx, player_ty = get_player_tile(player)
                  if player_tx == collapsing_tile.tx and player_ty == collapsing_tile.ty and state.game_over_time < 0 then
                     state.game_over_time = state.time
                  end
@@ -434,10 +461,10 @@ function _update()
    end
 
    if try_move(player, map, player.input_dir) or
-   try_move(player, map, get_current_player_dir(player)) then end
+   try_move(player, map, get_player_dir(player)) then end
 
    local padding = 80
-   local tx, ty = get_current_player_tile(player)
+   local tx, ty = get_player_tile(player)
    local sx_max, sy_max = tile_to_screen(tx + 1, ty + 1)
    local sx_min, sy_min = tile_to_screen(tx, ty)
    local xdiff = max(sx_max - (cam.sx + 128 - padding), 0) + min(sx_min - (cam.sx + padding), 0)
