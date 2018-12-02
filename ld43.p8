@@ -396,7 +396,7 @@ function _update()
                  add(collapsing_tiles, collapsing_tile)
               else
                  local player_tx, player_ty = get_current_player_tile(player)
-                 if player_tx == collapsing_tile.tx and player_ty == collapsing_tile.ty then
+                 if player_tx == collapsing_tile.tx and player_ty == collapsing_tile.ty and state.game_over_time < 0 then
                     state.game_over_time = state.time
                  end
 
