@@ -156,7 +156,7 @@ function create_state()
 
                local tile_type = template[tidx]
                if tile_type == tile_types.placeholder then
-                  tile_type = rnd(1) < 0.7 and get_random_source_tile_type() or tile_types.destination
+                  tile_type = rnd(1) < 0.6 and get_random_source_tile_type() or tile_types.destination
                end
 
                map[idx] = tile_type
