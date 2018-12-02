@@ -574,7 +574,7 @@ function _draw()
 
    camera(cam.sx, cam.sy)
 
-   local start_x, start_y = screen_to_tile(cam.sx, cam.sy)
+   local start_x, start_y = screen_to_tile(cam.sx - 1, cam.sy - 1)
    local end_x, end_y = screen_to_tile(cam.sx + 128, cam.sy + 128)
 
    start_x = flr(min(max(1, start_x), map_size.width))
