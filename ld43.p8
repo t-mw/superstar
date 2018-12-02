@@ -186,6 +186,7 @@ function create_state()
    camera_sy = sy - 64
 
    return {
+      title_screen = false,
       time = 0,
       map = map,
       camera = { sx = camera_sx, sy = camera_sy },
@@ -391,11 +392,24 @@ function try_move(player, map, dir)
 end
 
 function _update()
-   if not state or (state.game_over_time >= 0 and btnp(5)) then
+   local do_restart_game = state and state.game_over_time >= 0 and btnp(5)
+   if not state or do_restart_game then
       state = create_state()
+      state.title_screen = not do_restart_game
    end
 
    state.time += 1
+
+   for i = 1, 6 do
+      if btn(i - 1) then
+         state.title_screen = false
+      end
+   end
+
+   if state.title_screen then
+      return
+   end
+
    state.collapse_timer -= state.collapse_speed
    state.collapse_speed *= 1.0005
    state.collapse_speed = min(state.collapse_speed, 200)
@@ -485,6 +499,10 @@ function _update()
 end
 
 function _draw()
+   if not state then
+      return
+   end
+
    local player = state.player
    local cam = state.camera;
    local map = state.map
@@ -691,7 +709,28 @@ function _draw()
       return 64 - #s * 2
    end
 
-   if state.game_over_time >= 0 and state.time - state.game_over_time > game_over_show_time then
+   if state.title_screen then
+      local lines = {
+         "citizen.",
+         "supply the colonies with",
+         "vital energy resources.",
+         "pay no attention to the world",
+         "collapsing around you.",
+         "",
+         "",
+         "",
+         "life expectancy in this",
+         "line of work is short,",
+         "but trust that you are valued.",
+         "",
+         "press an arrow key to begin"
+      }
+
+      for i = 1, #lines do
+         local msg = lines[i]
+         print(msg, hcenter(msg), 7 + (i - 1) * 9)
+      end
+   elseif state.game_over_time >= 0 and state.time - state.game_over_time > game_over_show_time then
       local msg = "you scored "..state.score.."!"
       print(msg, hcenter(msg), 60)
 
